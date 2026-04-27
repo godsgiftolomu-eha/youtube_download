@@ -20,9 +20,29 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
 
+YDL_BASE_OPTS = {
+    "quiet": True,
+    "no_warnings": True,
+    # YouTube blocks the default web client aggressively from cloud IPs.
+    # Falling back through android/ios/web tvhtml5 clients raises the success rate.
+    "extractor_args": {
+        "youtube": {"player_client": ["android", "ios", "web", "tv_embedded"]},
+    },
+    "http_headers": {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+    },
+    "retries": 5,
+    "fragment_retries": 5,
+}
+
+
 def get_video_info(url: str) -> dict:
     """Fetch metadata + available formats without downloading."""
-    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    ydl_opts = {**YDL_BASE_OPTS, "skip_download": True}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
 
@@ -83,20 +103,18 @@ def download_media(url: str, output_dir: str, choice: dict, progress_placeholder
             f"bestvideo[height<={choice['height']}]+bestaudio/best[height<={choice['height']}]"
         )
         ydl_opts = {
+            **YDL_BASE_OPTS,
             "format": format_str,
             "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
             "merge_output_format": "mp4",
             "progress_hooks": [hook],
-            "quiet": True,
-            "no_warnings": True,
         }
     else:  # audio
         ydl_opts = {
+            **YDL_BASE_OPTS,
             "format": "bestaudio/best",
             "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
             "progress_hooks": [hook],
-            "quiet": True,
-            "no_warnings": True,
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -195,7 +213,15 @@ if st.session_state.info:
                 width="stretch",
             )
         except Exception as e:
-            st.error(f"Download failed: {e}")
+            msg = str(e)
+            if "403" in msg or "Forbidden" in msg or "Sign in" in msg:
+                st.error(
+                    "YouTube blocked this request from the server. This is common "
+                    "on cloud-hosted apps because YouTube rate-limits datacenter IPs. "
+                    "Try again in a minute, try a different video, or run the app locally."
+                )
+            else:
+                st.error(f"Download failed: {e}")
 
 # ---------- Footer ----------
 st.divider()
